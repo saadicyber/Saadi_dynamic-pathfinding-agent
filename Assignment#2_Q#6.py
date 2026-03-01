@@ -180,6 +180,7 @@ class GridApp:
         self.current_path: Optional[List[Tuple[int, int]]] = None
         self.search_running = False
         self.after_id = None
+        self.path_animate_id = None  # animation when Run Search completes (agent moves along path)
         self.place_mode: Optional[str] = None  # "start" or "goal"
 
         self.heuristics = {
@@ -369,16 +370,24 @@ class GridApp:
                 elif (r, c) == self.goal:
                     self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_GOAL, outline="#E64A19")
                     self.canvas.create_text(x1 + CELL_SIZE // 2, y1 + CELL_SIZE // 2, text="G", font=("Segoe UI", 10, "bold"))
+                elif self.path and (r, c) in self.path:
+                    # Green only for path cells the agent has crossed (when animating)
+                    if self.current_path and 0 <= self.agent_index < len(self.current_path):
+                        crossed = set(self.current_path[: self.agent_index + 1])
+                        if (r, c) in crossed:
+                            self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_PATH, outline="#388E3C")
+                        else:
+                            self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_EMPTY, outline="#ccc")
+                    else:
+                        self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_PATH, outline="#388E3C")
                 elif (r, c) in self.frontier_set:
                     self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_FRONTIER, outline="#F9A825")
                 elif (r, c) in self.visited_set:
                     self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_VISITED, outline="#7B1FA2")
-                elif self.path and (r, c) in self.path:
-                    self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_PATH, outline="#388E3C")
                 else:
                     self.canvas.create_rectangle(x1, y1, x2, y2, fill=COLOR_EMPTY, outline="#ccc")
-        # Agent in dynamic mode
-        if self.dynamic_mode and self.current_path and 0 <= self.agent_index < len(self.current_path):
+        # Agent (shown when moving along path after Run Search or in dynamic mode)
+        if self.current_path and 0 <= self.agent_index < len(self.current_path):
             ar, ac = self.current_path[self.agent_index]
             ax1, ay1 = ac * CELL_SIZE, ar * CELL_SIZE
             self.canvas.create_oval(ax1 + 2, ay1 + 2, ax1 + CELL_SIZE - 2, ay1 + CELL_SIZE - 2, fill=COLOR_AGENT, outline="#0097A7")
@@ -411,9 +420,17 @@ class GridApp:
             messagebox.showinfo("No Path", "No path found to goal.")
         self.current_path = path
         self.agent_index = 0
+        if self.path_animate_id:
+            self.root.after_cancel(self.path_animate_id)
+            self.path_animate_id = None
         self._draw_grid()
+        if path and not self.dynamic_mode:
+            self.path_animate_id = self.root.after(200, self._path_animation_step)
 
     def _reset_view(self):
+        if self.path_animate_id:
+            self.root.after_cancel(self.path_animate_id)
+            self.path_animate_id = None
         self.path = None
         self.visited_set = set()
         self.frontier_set = set()
@@ -422,6 +439,16 @@ class GridApp:
         self.metrics_label.config(text="Nodes Visited: 0  |  Path Cost: 0  |  Time: 0 ms")
         self._draw_grid()
 
+    def _path_animation_step(self):
+        """Animate agent along path after Run Search; path turns green as agent crosses it."""
+        self.path_animate_id = None
+        if self.dynamic_mode or not self.current_path:
+            return
+        self.agent_index += 1
+        self._draw_grid()
+        if self.agent_index < len(self.current_path):
+            self.path_animate_id = self.root.after(120, self._path_animation_step)
+
     def _toggle_dynamic(self):
         self.dynamic_mode = self.dynamic_var.get()
         if not self.dynamic_mode:
@@ -429,6 +456,9 @@ class GridApp:
                 self.root.after_cancel(self.after_id)
                 self.after_id = None
             return
+        if self.path_animate_id:
+            self.root.after_cancel(self.path_animate_id)
+            self.path_animate_id = None
         if not self.current_path:
             self._run_search()
         if self.current_path:
